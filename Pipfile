@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+numpy = "*"
+tensorflow-datasets = "*"
+tensorflow = "*"
+ipython = "*"
+jedi = "<0.18.0"
+parso = "<=0.7.1"
+
+[dev-packages]
+
+[requires]
+python_version = "3.8"

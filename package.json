@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "prettier": "2.2.1",
+    "prettier-plugin-csharp": "0.6.0-development"
+  }
+}
