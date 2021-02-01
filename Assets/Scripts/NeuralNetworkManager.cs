@@ -1,60 +1,62 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.IO;
 using UnityEngine;
-using XCharts;
 
-public class NeuralNetworkManager : MonoBehaviour {
-    public int Epochs = 30;
-    public int MiniBatchSize = 10;
-    public LineChart lineChart;
-    public double LearningRate = 3.0f;
-    public int[] sizes = {784, 30, 10};
+namespace Ummm {
+    public class NeuralNetworkManager : MonoBehaviour {
+        public int epochs = 30;
+        public int miniBatchSize = 10;
+        public double learningRate = 3.0f;
+        public int[] sizes = {784, 30, 10};
 
-    private NeuralNetwork neuralNetwork;
-    private static NeuralNetworkManager m_instance;
+        private NeuralNetwork _nn;
+        private static NeuralNetworkManager _mInstance;
 
-    [Serializable]
-    public struct Dataset {
-        public TextAsset images;
-        public TextAsset labels;
-    }
+        [System.Serializable]
+        public struct DatasetAssets {
+            public TextAsset images;
+            public TextAsset labels;
 
-    public Dataset TrainDataset;
-    public Dataset TestDataset;
-
-    public static NeuralNetworkManager Instance {
-        get
-        {
-            if (m_instance == null) {
-                m_instance = FindObjectOfType<NeuralNetworkManager>();
+            public Dataset Read() {
+                return Dataset.ReadAssets(images.bytes, labels.bytes);
             }
-
-            return m_instance;
         }
-    }
 
-    public void Train() {
-        var testData = MnistReader.ReadAssets(
-            TestDataset.images,
-            TestDataset.labels
-        );
-        var trainData = MnistReader.ReadAssets(
-            TrainDataset.images,
-            TrainDataset.labels
-        );
-        // // var neuralNetwork = new NeuralNetwork(sizes, trainData, testData 60, 3f, sizes, testData, trainData);
-        var neuralNetwork = new NeuralNetwork(sizes, trainData, testData);
-        neuralNetwork.Load();
-        neuralNetwork.SGD(Epochs, MiniBatchSize, LearningRate);
-        neuralNetwork.Save();
-    }
+        public DatasetAssets trainDatasetAssets;
+        public DatasetAssets testDatasetAssets;
 
-    private void Awake() {
-        if (m_instance == null) {
-            m_instance = this as NeuralNetworkManager;
+        public static NeuralNetworkManager Instance {
+            get
+            {
+                if (_mInstance == null) {
+                    _mInstance = FindObjectOfType<NeuralNetworkManager>();
+                }
+
+                return _mInstance;
+            }
+        }
+
+        public void Train() {
+            var testData = Dataset.ReadAssets(
+                testDatasetAssets.images.bytes,
+                testDatasetAssets.labels.bytes
+            );
+            var trainData = Dataset.ReadAssets(
+                trainDatasetAssets.images.bytes,
+                trainDatasetAssets.labels.bytes
+            );
+            _nn = new NeuralNetwork(sizes, trainData, testData);
+            _nn.Load();
+            _nn.Sgd(epochs, miniBatchSize, learningRate);
+        }
+
+        private void Awake() {
+            if (_mInstance == null) {
+                _mInstance = this as NeuralNetworkManager;
+            }
+        }
+
+        private void OnDestroy() {
+            Debug.Log("NeuralNetworkManager#OnDisable");
+            _nn?.Cancel();
         }
     }
 }

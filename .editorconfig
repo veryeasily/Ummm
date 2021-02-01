@@ -1,9 +1,0 @@
-
-[*]
-
-# Microsoft .NET properties
-csharp_indent_braces = false
-csharp_new_line_before_open_brace = accessors
-
-# ReSharper properties
-resharper_csharp_empty_block_style = together

@@ -1,21 +1,16 @@
+using Ummm;
 using System;
-using XCharts;
-using System.Collections;
 using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using MathNet.Numerics.LinearAlgebra;
 using MathNet.Numerics.Distributions;
-using Unity.Jobs;
-using Unity.Collections;
-using UnityEngine;
-using UnityEngine.Serialization;
-using UnityEngine.SocialPlatforms;
 using Debug = UnityEngine.Debug;
-using Random = System.Random;
+using Unity.Barracuda;
 
-[Serializable]
 public class NeuralNetwork {
     public class NeuralNetworkParameters {
         public List<Vector<double>> Biases = new List<Vector<double>>();
@@ -34,9 +29,9 @@ public class NeuralNetwork {
     public class TrainingData {
         public readonly List<(Vector<double>, double)> List = new List<(Vector<double>, double)>();
 
-        public TrainingData(MnistReader.Data data, int epoch, int miniBatchSize) {
-            var xs = data.xs.Skip(epoch * miniBatchSize).Take(miniBatchSize).ToList();
-            var ys = data.ys.Skip(epoch * miniBatchSize).Take(miniBatchSize).ToList();
+        public TrainingData(Dataset data, int epoch, int miniBatchSize) {
+            var xs = data.Xs.Skip(epoch * miniBatchSize).Take(miniBatchSize).ToList();
+            var ys = data.Ys.Skip(epoch * miniBatchSize).Take(miniBatchSize).ToList();
             for (var i = 0; i < xs.Count; i++) {
                 // this[i] = (xs[i], ys[i]);
                 List.Add((Vector<double>.Build.DenseOfArray(xs[i]), ys[i]));
@@ -46,68 +41,59 @@ public class NeuralNetwork {
 
     public NeuralNetworkParameters Parameters;
 
-    public int[] sizes;
+    public int[] Sizes;
 
-    private MnistReader.Data testData;
-    private MnistReader.Data trainData;
+    private Dataset _testData;
+    private Dataset _trainData;
 
-    private static string serializedPath = Application.persistentDataPath + "/neural_network.dat";
+    private CancellationTokenSource _source = new CancellationTokenSource();
 
-    private List<bool> successes;
-    private List<Vector<double>> zs;
-    private List<Vector<double>> activations;
+    private static string _serializedPath = UnityEngine.Application.persistentDataPath + "/neural_network.dat";
 
-    private LineChart NNLineChart => NeuralNetworkManager.Instance.lineChart;
+    private List<bool> _successes;
+    private List<Vector<double>> _zs;
+    private List<Vector<double>> _activations;
 
-    private List<Vector<double>> biases {
+    private int _epochs;
+    private int _miniBatchSize;
+    private double _eta;
+    private Task task;
+
+    private List<Vector<double>> Biases {
         get => Parameters.Biases;
         set => Parameters.Biases = value;
     }
 
-    private List<Matrix<double>> weights {
+    private List<Matrix<double>> Weights {
         get => Parameters.Weights;
         set => Parameters.Weights = value;
     }
 
-    public NeuralNetwork(int[] sizes, MnistReader.Data trainData, MnistReader.Data testData) {
-        this.sizes = sizes;
-        this.trainData = trainData;
-        this.testData = testData;
-        successes = new List<bool>();
-        activations = new List<Vector<double>>();
+    public NeuralNetwork(int[] sizes, Dataset trainData, Dataset testData) {
+        this.Sizes = sizes;
+        this._trainData = trainData;
+        this._testData = testData;
+        _successes = new List<bool>();
+        _activations = new List<Vector<double>>();
         Parameters = new NeuralNetworkParameters(sizes);
-        zs = new List<Vector<double>>();
-    }
-
-    public void Shuffle() {
-        for (var i = 0; i < trainData.xs.Length; i++) {
-            var rand = UnityEngine.Random.Range(0, trainData.xs.Length);
-            var a = trainData.xs[i];
-            var b = trainData.xs[rand];
-            var c = trainData.ys[i];
-            var d = trainData.ys[rand];
-            trainData.xs[i] = b;
-            trainData.xs[rand] = a;
-            trainData.ys[i] = c;
-            trainData.ys[rand] = d;
-        }
+        _zs = new List<Vector<double>>();
     }
 
     public void Load() {
-        if (!File.Exists(serializedPath)) {
+        if (!File.Exists(_serializedPath)) {
             return;
         }
 
-        var byteReader = new BinaryReader(File.OpenRead(serializedPath));
-        foreach (var i in Enumerable.Range(0, weights.Count)) {
-            for (var j = 0; j < sizes[i + 1]; j++) {
-                for (var k = 0; k < sizes[i]; k++) {
-                    weights[i][j, k] = byteReader.ReadDouble();
+        var byteReader = new BinaryReader(File.OpenRead(_serializedPath));
+        foreach (var i in Enumerable.Range(0, Weights.Count)) {
+            for (var j = 0; j < Sizes[i + 1]; j++) {
+                for (var k = 0; k < Sizes[i]; k++) {
+                    Weights[i][j, k] = byteReader.ReadDouble();
                 }
             }
 
-            for (var j = 0; j < sizes[i + 1]; j++) {
-                biases[i][j] = byteReader.ReadDouble();
+            for (var j = 0; j < Sizes[i + 1]; j++) {
+                Biases[i][j] = byteReader.ReadDouble();
             }
         }
 
@@ -115,42 +101,95 @@ public class NeuralNetwork {
     }
 
     public void Save() {
-        var byteWriter = new BinaryWriter(File.OpenWrite(serializedPath));
-        foreach (var i in Enumerable.Range(0, weights.Count)) {
-            for (var j = 0; j < sizes[i + 1]; j++) {
-                for (var k = 0; k < sizes[i]; k++) {
-                    byteWriter.Write(BitConverter.GetBytes(weights[i][j, k]));
+        var byteWriter = new BinaryWriter(File.OpenWrite(_serializedPath));
+        foreach (var i in Enumerable.Range(0, Weights.Count)) {
+            for (var j = 0; j < Sizes[i + 1]; j++) {
+                for (var k = 0; k < Sizes[i]; k++) {
+                    byteWriter.Write(BitConverter.GetBytes(Weights[i][j, k]));
                 }
             }
 
-            for (var j = 0; j < sizes[i + 1]; j++) {
-                byteWriter.Write(BitConverter.GetBytes(biases[i][j]));
+            for (var j = 0; j < Sizes[i + 1]; j++) {
+                byteWriter.Write(BitConverter.GetBytes(Biases[i][j]));
             }
         }
 
         byteWriter.Dispose();
     }
 
-    public void SGD(int epochs, int miniBatchSize, double eta) {
-        for (var i = 0; i < epochs; i++) {
-            var watch = Stopwatch.StartNew();
+    public void Sgd(int epochs, int miniBatchSize, double eta) {
+        this._epochs = epochs;
+        this._miniBatchSize = miniBatchSize;
+        this._eta = eta;
+        var token = _source.Token;
 
-            // for (var j = 0; j < 10; j += 1) {
-            for (var j = 0; j * miniBatchSize < trainData.xs.Length; j += 1) {
-                var miniBatch = new TrainingData(trainData, j, miniBatchSize);
-                UpdateMiniBatch(miniBatch, eta);
+        task = Task.Factory.StartNew(() =>
+        {
+            Debug.Log("Start of SGD on Thread!");
+
+            for (var i = 0; i < epochs; i++) {
+                if (token.IsCancellationRequested) {
+                    Debug.LogFormat("Early returning from start of epoch {0}...", i);
+                    return;
+                }
+
+                Debug.LogFormat("Starting epoch {0}", i);
+                var watch = Stopwatch.StartNew();
+
+                _trainData.Shuffle();
+
+                Debug.LogFormat("Past shuffle...");
+
+                // for (var j = 0; j < 10; j += 1) {
+                for (var j = 0; j * miniBatchSize < _trainData.Xs.Length; j += 1) {
+                    if (token.IsCancellationRequested) {
+                        Debug.LogFormat("Early returning from start of mini-batch {0}...", j);
+                        return;
+                    }
+
+                    // var miniBatch = new TrainingData(_trainData, j, miniBatchSize);
+                    var miniBatch = _trainData.GetMiniBatch(j, miniBatchSize);
+                    UpdateMiniBatch(miniBatch, eta);
+                }
+
+                watch.Stop();
+                Debug.LogFormat("Epoch updated time = {0}", watch.ElapsedMilliseconds);
+                RunTest();
             }
 
-            watch.Stop();
-            Debug.LogFormat("Epoch updated time = {0}", watch.ElapsedMilliseconds);
-            RunTest();
-        }
+            Debug.Log("End of SGD on Thread!");
+
+            if (token.IsCancellationRequested) {
+                Debug.LogFormat("Early returning before Save() call...");
+                return;
+            }
+
+            Save();
+
+            Debug.Log("Done saving!");
+        }, token);
     }
 
-    public void UpdateMiniBatch(TrainingData trainingData, double eta) {
-        Debug.Log("NeuralNetwork: Training!!!");
+    public void Cancel() {
+        Debug.Log("NeuralNetwork#Cancel");
+        _source?.Cancel();
+    }
 
-        var numInEpoch = trainingData.List.Count;
+    public Vector<double> OutputError(double y) {
+        var vectorY = ConvertOutputToVector((int) y);
+        var activation = _activations.Last();
+        var z = _zs.Last();
+        return (activation - vectorY).PointwiseMultiply(z.Map(SigmaPrime));
+    }
+
+    public Vector<double> Run(byte[] input, byte y) {
+        var doubles = input.Select(i => (double) i).ToArray();
+        var vec = Vector<double>.Build.Dense(doubles);
+        return Run(vec, y);
+    }
+
+    private void UpdateMiniBatch(List<(Vector<double>, double)> miniBatch, double eta) {
+        var numInEpoch = miniBatch.Count;
 
         // NNLineChart.ClearData();
         // NNLineChart.gameObject.SetActive(true);
@@ -159,17 +198,17 @@ public class NeuralNetwork {
         //
         // foreach (var epochIdx in Enumerable.Range(0, epochs)) {
 
-        successes = new List<bool>();
+        _successes = new List<bool>();
 
-        var nablaB = biases.Select(
+        var nablaB = Biases.Select(
             b => Vector<double>.Build.Dense(b.Count, 0)
         ).ToList();
 
-        var nablaW = weights.Select(
+        var nablaW = Weights.Select(
             w => Matrix<double>.Build.Dense(w.RowCount, w.ColumnCount)
         ).ToList();
 
-        foreach (var (x, y) in trainingData.List) {
+        foreach (var (x, y) in miniBatch) {
             var (deltaNablaB, deltaNablaW) = Backprop(x, y);
             for (var k = 0; k < nablaB.Count; k++) {
                 nablaB[k] = nablaB[k] + deltaNablaB[k];
@@ -185,8 +224,8 @@ public class NeuralNetwork {
         //     var w = weights[i];
         //     weights[i] = w - (eta / numInEpoch) * nablaW[i];
         // }
-        weights = weights.Select((w, j) => w - (eta / numInEpoch) * nablaW[j]).ToList();
-        biases = biases.Select((b, j) => b - (eta / numInEpoch) * nablaB[j]).ToList();
+        Weights = Weights.Select((w, j) => w - (eta / numInEpoch) * nablaW[j]).ToList();
+        Biases = Biases.Select((b, j) => b - (eta / numInEpoch) * nablaB[j]).ToList();
 
         // double numerator = successes.FindAll(s => s == true).Count;
         // double denominator = successes.Count;
@@ -195,8 +234,6 @@ public class NeuralNetwork {
 
         // NNLineChart.AddData("serie1", epochIdx, (float) successRate);
         // }
-
-        Debug.Log("Done!!");
     }
 
     private (List<Vector<double>>, List<Matrix<double>>) Backprop(Vector<double> x, double y) {
@@ -219,77 +256,45 @@ public class NeuralNetwork {
         var zs = new List<Vector<double>>();
         Vector<double> z;
 
-        foreach (var i in Enumerable.Range(0, weights.Count)) {
-            var w = weights[i];
-            var b = biases[i];
+        foreach (var i in Enumerable.Range(0, Weights.Count)) {
+            var w = Weights[i];
+            var b = Biases[i];
             deltaNablaB.Add(Vector<double>.Build.Dense(b.Count, 0));
             deltaNablaW.Add(Matrix<double>.Build.Dense(w.RowCount, w.ColumnCount, 0));
         }
 
-        foreach (var (b, w) in biases.Zip(weights, Tuple.Create)) {
+        foreach (var (b, w) in Biases.Zip(Weights, Tuple.Create)) {
             z = w.Multiply(activation) + b;
             zs.Add(z);
             activation = z.Map(Sigma);
             activations.Add(activation);
         }
 
-        // Debug.Log("activations:");
-        // activations.ForEach(a => Debug.Log(a.ToVectorString()));
-
         var vecY = ConvertOutputToVector((int) y);
         z = zs.Last();
         var delta = (activation - vecY).PointwiseMultiply(z.Map(SigmaPrime));
 
-        // Debug.Log("delta:");
-        // Debug.Log(delta.ToVectorString());
-
         deltaNablaB[deltaNablaB.Count - 1] = delta;
         deltaNablaW[deltaNablaW.Count - 1] = delta.OuterProduct(activations[activations.Count - 2]);
 
-        for (var l = weights.Count - 2; l >= 0; l--) {
+        for (var l = Weights.Count - 2; l >= 0; l--) {
             z = zs[l];
             var sp = z.Map(SigmaPrime);
-            delta = weights[l + 1].Transpose().Multiply(delta).PointwiseMultiply(sp);
+            delta = Weights[l + 1].Transpose().Multiply(delta).PointwiseMultiply(sp);
             deltaNablaB[l] = delta;
             deltaNablaW[l] = delta.OuterProduct(activations[l]);
         }
 
-        // Debug.Log("");
-        // Debug.Log("");
-        // Debug.Log("");
-        // Debug.Log("deltaNablaW:");
-        // deltaNablaW.ForEach(dnw => Debug.Log(dnw.ToMatrixString()));
-        // Debug.Log("");
-        // Debug.Log("");
-        // Debug.Log("");
-        // Debug.Log("deltaNablaB:");
-        // deltaNablaB.ForEach(dnb => Debug.Log(dnb.ToVectorString()));
-
         return (deltaNablaB, deltaNablaW);
-        // nablaB = nablaB.Select((nb, j) => nb + deltaNablaB[j]).ToList();
-        // nablaW = nablaW.Select((nw, j) => nw + deltaNablaW[j]).ToList();
-    }
-
-    public Vector<double> OutputError(double y) {
-        var vectorY = ConvertOutputToVector((int) y);
-        var activation = activations.Last();
-        var z = zs.Last();
-        return (activation - vectorY).PointwiseMultiply(z.Map(SigmaPrime));
     }
 
     private double CostDerivative(double result, double target) {
         return target - result;
     }
 
-    public Vector<double> Run(byte[] input, byte y) {
-        var doubles = input.Select(i => (double) i).ToArray();
-        var vec = Vector<double>.Build.Dense(doubles);
-        return Run(vec, y);
-    }
-
-    public Vector<double> Run(Vector<double> input, byte y) {
-        var zs = this.zs;
-        var activations = this.activations;
+    private Vector<double> Run(Vector<double> input, byte y) {
+        var zs = this._zs;
+        var activations = this._activations;
 
         var activation = input;
         activations = new List<Vector<double>> {input};
@@ -302,32 +307,32 @@ public class NeuralNetwork {
             activations.Add(activation);
         }
 
-        foreach (var i in Enumerable.Range(0, weights.Count)) {
-            var mat = weights[i];
-            var b = biases[i];
+        foreach (var i in Enumerable.Range(0, Weights.Count)) {
+            var mat = Weights[i];
+            var b = Biases[i];
             Fn(mat, b);
         }
 
         var result = activations.Last();
 
-        successes.Add(result.MaximumIndex() == y);
+        _successes.Add(result.MaximumIndex() == y);
 
         return result;
     }
 
     public void RunTest() {
         var successes = 0;
-        var data = new TrainingData(testData, 0, testData.xs.Length);
+        var data = new TrainingData(_testData, 0, _testData.Xs.Length);
 
         foreach (var (x, y) in data.List) {
             Vector<double> z;
             var activation = x;
 
-            foreach (var (b, w) in biases.Zip(weights, Tuple.Create)) {
+            foreach (var (b, w) in Biases.Zip(Weights, Tuple.Create)) {
                 z = w.Multiply(activation) + b;
-                zs.Add(z);
+                _zs.Add(z);
                 activation = z.Map(Sigma);
-                activations.Add(activation);
+                _activations.Add(activation);
             }
 
             var result = activation.MaximumIndex();
@@ -340,10 +345,6 @@ public class NeuralNetwork {
 
         Debug.LogFormat("total successes {0}, total {1}, percentage {2}", successes, data.List.Count,
             (double) successes / (double) data.List.Count);
-    }
-
-    private void Init() {
-        Debug.Log("Init!!");
     }
 
     private Vector<double> ConvertOutputToVector(int y) {

@@ -1,25 +1,26 @@
 using System.Collections;
 using System.Collections.Generic;
+using Ummm;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 public class GameManager : MonoBehaviour {
     public GameObject credits;
 
-    private static GameManager m_instance;
+    private static GameManager _mInstance;
 
     public static GameManager Instance {
         get {
-            if (m_instance == null) {
-                m_instance = FindObjectOfType<GameManager>();
+            if (_mInstance == null) {
+                _mInstance = FindObjectOfType<GameManager>();
             }
-            return m_instance;
+            return _mInstance;
         }
     }
 
     private void Awake() {
-        if (m_instance == null) {
-            m_instance = this as GameManager;
+        if (_mInstance == null) {
+            _mInstance = this as GameManager;
         }
     }
 

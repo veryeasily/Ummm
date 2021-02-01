@@ -53,5 +53,7 @@
         "temp/":true,
         "Temp/":true
     },
-    "python.pythonPath": "/Users/hi/.pyenv/versions/3.8.3/bin/python"
+    "python.formatting.blackPath": "/Users/hi/Library/Caches/pypoetry/virtualenvs/ummm-UyR84Uhk-py3.8/bin/black",
+    "python.pythonPath": "/Users/hi/Library/Caches/pypoetry/virtualenvs/ummm-UyR84Uhk-py3.8/bin/python",
+    "python.formatting.provider": "black",
 }

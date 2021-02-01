@@ -437,3 +437,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Ignore neural network model files
+*.onnx

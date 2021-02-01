@@ -2,17 +2,18 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
 public class PlayerController : MonoBehaviour
 {
     public float speed = 1f;
 
-    private Rigidbody rb;
-    private Vector2 moveVec;
+    private Rigidbody _rb;
+    private Vector2 _moveVec;
 
     void Start()
     {
-        rb = GetComponent<Rigidbody>();
+        _rb = GetComponent<Rigidbody>();
     }
 
     private void OnTriggerEnter(Collider other) {
@@ -24,16 +25,22 @@ public class PlayerController : MonoBehaviour
     }
 
     private void OnMove(InputValue movementValue) {
-        moveVec = movementValue.Get<Vector2>();
+        _moveVec = movementValue.Get<Vector2>();
     }
 
     private void OnQuit(InputValue keyValue) {
         Application.Quit();
     }
 
+    private void OnNextLevel(InputValue value) {
+        Debug.Log(value.ToString());
+        Debug.Log(value);
+        SceneManager.LoadScene("Two", LoadSceneMode.Single);
+    }
+
     void FixedUpdate()
     {
-        Vector3 updated = new Vector3(moveVec.x, 0f, moveVec.y);
-        rb.AddForce(updated * speed);
+        Vector3 updated = new Vector3(_moveVec.x, 0f, _moveVec.y);
+        _rb.AddForce(updated * speed);
     }
 }
